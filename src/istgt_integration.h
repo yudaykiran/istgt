@@ -19,7 +19,7 @@ typedef struct rcmd_s rcmd_t;
 
 typedef enum replica_state_s {
 	REPLICA_DEGRADED = 1,
-	REPLICA_HELATHY,
+	REPLICA_HEALTHY,
 	REPLICA_ERRORED,
 } replica_state_t;
 
