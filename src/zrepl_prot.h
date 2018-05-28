@@ -48,16 +48,24 @@ extern "C" {
 #define	TARGET_PORT	6060
 
 enum zvol_op_code {
-	ZVOL_OPCODE_HANDSHAKE = 0,
-	ZVOL_OPCODE_READ,
-	ZVOL_OPCODE_WRITE,
-	ZVOL_OPCODE_UNMAP,
-	ZVOL_OPCODE_SYNC,
-	ZVOL_OPCODE_SNAP_CREATE,
-	ZVOL_OPCODE_SNAP_ROLLBACK,
-	ZVOL_OPCODE_REPLICA_STATUS,
+        // Used to obtain info about a zvol on mgmt connection
+        ZVOL_OPCODE_HANDSHAKE = 0,
+        // Following 4 requests are used on data connection
+        ZVOL_OPCODE_OPEN,
+        ZVOL_OPCODE_READ,
+        ZVOL_OPCODE_WRITE,
+        ZVOL_OPCODE_SYNC,
+        // Following commands apply to mgmt connection
+        ZVOL_OPCODE_UNMAP,
+        ZVOL_OPCODE_REPLICA_STATUS,
+        ZVOL_OPCODE_PREPARE_FOR_REBUILD,
+        ZVOL_OPCODE_START_REBUILD,
+        ZVOL_OPCODE_REBUILD_STEP,
+        ZVOL_OPCODE_REBUILD_STEP_DONE,
+        ZVOL_OPCODE_REBUILD_COMPLETE,
+        ZVOL_OPCODE_SNAP_CREATE,
+        ZVOL_OPCODE_SNAP_ROLLBACK,
 } __attribute__((packed));
-
 typedef enum zvol_op_code zvol_op_code_t;
 
 enum zvol_op_status {
@@ -110,7 +118,8 @@ typedef struct mgmt_ack mgmt_ack_t;
 enum zvol_rebuild_status {
 	ZVOL_REBUILDING_INIT,		/* rebuilding initiated on zvol */
 	ZVOL_REBUILDING_IN_PROGRESS,	/* zvol is rebuilding */
-	ZVOL_REBUILDING_DONE		/* done with rebuilding */
+	ZVOL_REBUILDING_DONE,		/* done with rebuilding */
+	ZVOL_REBUILDING_FAILED		/* Rebuilding failed */
 } __attribute__((packed));
 
 typedef enum zvol_rebuild_status zvol_rebuild_status_t;

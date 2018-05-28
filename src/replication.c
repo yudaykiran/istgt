@@ -99,10 +99,38 @@ int initialize_volume(spec_t *spec);
 }
 
 void
+prepare_for_rebuild(spec_t *spec, replica_t *master_replica) {
+	replica_t *replica;
+	zvol_io_hdr_t *rmgmtio = NULL;
+	uint64_t data_len;
+	TAILQ_FOREACH(replica, &spec->rq, r_next) {
+		if(replica == master_replica)
+			continue;
+		zvol_op_code_t mgmt_opcode = ZVOL_OPCODE_PREPARE_FOR_REBUILD;
+		mgmt_cmd_t *mgmt_cmd;
+
+		mgmt_cmd = malloc(sizeof(mgmt_cmd_t));
+		data_len = 0;
+		BUILD_REPLICA_MGMT_HDR(rmgmtio, mgmt_opcode, data_len);
+
+		mgmt_cmd->io_hdr = rmgmtio;
+		mgmt_cmd->io_bytes = 0;
+		mgmt_cmd->data = NULL;
+		mgmt_cmd->mgmt_cmd_state = WRITE_IO_SEND_HDR;
+
+		MTX_LOCK(&replica->r_mtx);
+		TAILQ_INSERT_TAIL(&replica->mgmt_cmd_queue, mgmt_cmd, mgmt_cmd_next);
+		MTX_UNLOCK(&replica->r_mtx);
+
+		handle_write_data_event(replica);
+	}
+}
+
+void
 update_volstate(spec_t *spec)
 {
 	uint64_t max;
-	replica_t *replica;
+	replica_t *replica, *master_replica = NULL;
 
 	if(((spec->healthy_rcount + spec->degraded_rcount >= spec->consistency_factor) &&
 		(spec->healthy_rcount >= 1))||
@@ -111,16 +139,19 @@ update_volstate(spec_t *spec)
 		if (spec->ready == false)
 		{
 			max = 0;
-			TAILQ_FOREACH(replica, &spec->rq, r_next)
+			TAILQ_FOREACH(replica, &spec->rq, r_next) {
 				max = (max < replica->initial_checkpointed_io_seq) ?
-				    replica->initial_checkpointed_io_seq : max;
-
+				    (replica->initial_checkpointed_io_seq , master_replica=replica) : max;
+			}
 			max = (max == 0) ? 10 : max + (1<<20);
 			spec->io_seq = max;
 		}
 		spec->ready = true;
 	} else {
 		spec->ready = false;
+	}
+	if(master_replica != NULL) {
+		prepare_for_rebuild(spec, master_replica);
 	}
 }
 
@@ -488,6 +519,16 @@ ask_replica_status_all(spec_t *spec)
 	MTX_UNLOCK(&spec->rq_mtx);
 }
 
+void
+update_rebuild_info(spec_t *spec, replica_t *replica) {
+	zvol_io_hdr_t *ack_hdr;
+	mgmt_ack_t *ack_data;
+
+	ack_hdr = replica->mgmt_io_resp_hdr;
+	ack_data = (mgmt_ack_t *)replica->mgmt_io_resp_data;
+
+}
+
 static int
 update_replica_status(spec_t *spec, replica_t *replica)
 {
@@ -785,6 +826,16 @@ read_io_resp_hdr:
 					/* replica status must come from mgmt connection */
 					if (fd != replica->iofd)
 						update_replica_status(spec, replica);
+					free(*resp_data);
+					break;
+				case ZVOL_OPCODE_PREPARE_FOR_REBUILD:
+					if(resp_hdr->len != sizeof (zrepl_status_ack_t))
+						REPLICA_ERRLOG("replica_state_t length %lu is not matching with size of repl status data..\n",
+							resp_hdr->len);
+
+					/* replica status must come from mgmt connection */
+					if (fd != replica->iofd)
+						update_rebuild_info(spec, replica);
 					free(*resp_data);
 					break;
 
