@@ -127,6 +127,30 @@ prepare_for_rebuild(spec_t *spec, replica_t *master_replica) {
 }
 
 void
+start_rebuild(spec_t *spec) {
+	replica_t *replica = spec->master_replica;
+	zvol_io_hdr_t *rmgmtio = NULL;
+	uint64_t data_len;
+	zvol_op_code_t mgmt_opcode = ZVOL_OPCODE_START_REBUILD;
+	mgmt_cmd_t *mgmt_cmd;
+
+	mgmt_cmd = malloc(sizeof(mgmt_cmd_t));
+	data_len = spec->rebuild_info_ack_recvd *sizeof(mgmt_cmd_t);
+	BUILD_REPLICA_MGMT_HDR(rmgmtio, mgmt_opcode, data_len);
+
+	mgmt_cmd->io_hdr = rmgmtio;
+	mgmt_cmd->io_bytes = 0;
+	mgmt_cmd->data = spec->rebuild_info;
+	mgmt_cmd->mgmt_cmd_state = WRITE_IO_SEND_HDR;
+
+	MTX_LOCK(&replica->r_mtx);
+	TAILQ_INSERT_TAIL(&replica->mgmt_cmd_queue, mgmt_cmd, mgmt_cmd_next);
+	MTX_UNLOCK(&replica->r_mtx);
+
+	handle_write_data_event(replica);
+}
+
+void
 update_volstate(spec_t *spec)
 {
 	uint64_t max;
@@ -153,6 +177,7 @@ update_volstate(spec_t *spec)
 	if(master_replica != NULL) {
 		prepare_for_rebuild(spec, master_replica);
 	}
+	spec->master_replica = replica;
 }
 
 /*
@@ -520,13 +545,19 @@ ask_replica_status_all(spec_t *spec)
 }
 
 void
-update_rebuild_info(spec_t *spec, replica_t *replica) {
-	zvol_io_hdr_t *ack_hdr;
-	mgmt_ack_t *ack_data;
-
-	ack_hdr = replica->mgmt_io_resp_hdr;
-	ack_data = (mgmt_ack_t *)replica->mgmt_io_resp_data;
-
+update_rebuild_info(spec_t *spec, mgmt_ack_t *ack_data) {
+	int rebuild_replica_count;
+	MTX_LOCK(&spec->rq_mtx);
+	rebuild_replica_count = spec->rebuild_replica_count;
+	MTX_UNLOCK(&spec->rq_mtx);
+	if(spec->rebuild_info == NULL) {
+		spec->rebuild_info = (struct iovec *)malloc(sizeof(mgmt_ack_t) * rebuild_replica_count);
+	}
+	memcpy(&spec->rebuild_info[spec->rebuild_info_ack_recvd], ack_data, sizeof(mgmt_ack_t));
+	spec->rebuild_info_ack_recvd++;
+	if(spec->rebuild_info_ack_recvd == rebuild_replica_count) {
+		start_rebuild(spec);
+	}
 }
 
 static int
@@ -829,13 +860,13 @@ read_io_resp_hdr:
 					free(*resp_data);
 					break;
 				case ZVOL_OPCODE_PREPARE_FOR_REBUILD:
-					if(resp_hdr->len != sizeof (zrepl_status_ack_t))
-						REPLICA_ERRLOG("replica_state_t length %lu is not matching with size of repl status data..\n",
+					if(resp_hdr->len != sizeof (mgmt_ack_t))
+						REPLICA_ERRLOG("replica data length %lu is not matching with size of mgmt_ack_t..\n",
 							resp_hdr->len);
 
 					/* replica status must come from mgmt connection */
 					if (fd != replica->iofd)
-						update_rebuild_info(spec, replica);
+						update_rebuild_info(spec, *resp_data);
 					free(*resp_data);
 					break;
 
@@ -1223,6 +1254,9 @@ initialize_volume(spec_t *spec)
 	spec->healthy_rcount = 0;
 	spec->degraded_rcount = 0;
 	spec->ready = false;
+	spec->master_replica = NULL;
+	spec->rebuild_info = NULL;
+	spec->rebuild_info_ack_recvd = 0;
 
 	rc = pthread_mutex_init(&spec->rcommonq_mtx, NULL);
 	if (rc != 0) {

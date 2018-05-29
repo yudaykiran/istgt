@@ -824,6 +824,11 @@ typedef struct istgt_lu_disk_t {
 	int healthy_rcount;
 	int degraded_rcount;
 	bool ready;
+	int rebuild_replica_count;
+	struct replica_s *master_replica;
+	mgmt_ack_t *rebuild_info;
+	int rebuild_info_ack_recvd;
+
 	/*Common for both the above queues,
 	Since same cmd is part of both the queues*/
 	pthread_mutex_t rq_mtx; 
