@@ -73,9 +73,13 @@ static int handle_mgmt_event_fd(replica_t *replica);
 		if (cmd_write) {						\
 			rcomm_cmd->opcode = ZVOL_OPCODE_WRITE;		\
 			rcomm_cmd->iovcnt = cmd->iobufindx+1;		\
+			__sync_add_and_fetch(&spec->writes, 1);\
+			__sync_add_and_fetch(&spec->writebytes, nbytes);\
 		} else {						\
 			rcomm_cmd->opcode = ZVOL_OPCODE_READ;		\
 			rcomm_cmd->iovcnt = 0;				\
+			__sync_add_and_fetch(&spec->reads, 1);\
+			__sync_add_and_fetch(&spec->readbytes, nbytes);\
 		}							\
 		if (cmd_write) {						\
 			for (i=1; i < iovcnt + 1; i++) {		\
