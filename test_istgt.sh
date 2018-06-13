@@ -379,6 +379,8 @@ run_read_consistency_test ()
 	rm -rf ${replica1_vdev}* ${replica2_vdev}* ${replica3_vdev}*
 }
 
+addr2line -e src/istgt_integration 0x408182
+
 run_data_integrity_test
 run_mempool_test
 run_istgt_integration
