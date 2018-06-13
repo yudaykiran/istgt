@@ -55,7 +55,7 @@ int replica_timeout = REPLICA_DEFAULT_TIMEOUT;
 		rcomm_cmd->resp_list[idx].io_resp_hdr.status =		\
 		    ZVOL_OP_STATUS_FAILED;				\
 		rcomm_cmd->resp_list[idx].data_ptr = NULL;		\
-		rcomm_cmd->resp_list[idx].status = 1;			\
+		rcomm_cmd->resp_list[idx].status |= RECEIVED_ERR;	\
 		if (rcomm_cmd->state != CMD_EXECUTION_DONE)		\
 			pthread_cond_signal(_cond);			\
 		free(rcmd->iov_data);					\
@@ -225,7 +225,6 @@ handle_data_conn_error(replica_t *r)
 		spec->healthy_rcount--;
 	else if (r->state == ZVOL_STATUS_DEGRADED)
 		spec->degraded_rcount--;
-
 	update_volstate(r->spec);
 
 	mgmt_eventfd2 = r->mgmt_eventfd2;
@@ -470,7 +469,7 @@ start:
 		rcomm_cmd->resp_list[idx].data_ptr = r->ongoing_io_buf;
 		if (rcomm_cmd->opcode == ZVOL_OPCODE_WRITE)
 			r->replica_inflight_write_io_cnt -= 1;
-		rcomm_cmd->resp_list[idx].status = 1;
+		rcomm_cmd->resp_list[idx].status |= RECEIVED_OK;
 
 		if (rcomm_cmd->state != CMD_EXECUTION_DONE) {
 			pthread_cond_signal(cond_var);
@@ -641,5 +640,6 @@ replica_thread(void *arg)
 exit:
 	if (ret == -1)
 		handle_data_conn_error(r);
+	REPLICA_ERRLOG("replica_thread exiting ...\n");
 	return NULL;
 }
